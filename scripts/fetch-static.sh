@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # 获取「官方仓库里的」静态 bash 与 busybox（无需 root）。
 #
-#   scripts/fetch-static.sh                    当前架构（apt-get download）
-#   scripts/fetch-static.sh --arch aarch64     交叉架构（从 ports.ubuntu.com 下载）
-#   scripts/fetch-static.sh --out runtime/arm64
+#   scripts/fetch-static.sh --arch x86_64  --out runtime/x86_64
+#   scripts/fetch-static.sh --arch aarch64 --out runtime/aarch64
+#   scripts/fetch-static.sh --arch armv7   --out runtime/armv7
+#   scripts/fetch-static.sh --arch i386    --out runtime/i386
 #
 # 说明：Ubuntu 的 bash-static / busybox-static 是 glibc 静态链接，可直接在
 #       Android 内核上运行，体积略大于 musl 版本。追求最小体积/最干净依赖时，
@@ -17,7 +18,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --arch) ARCH=$2; shift 2;;
     --out) OUT=$2; shift 2;;
-    -h|--help) sed -n '2,10p' "$0"; exit 0;;
+    -h|--help) sed -n '2,11p' "$0"; exit 0;;
     *) echo "未知参数: $1" >&2; exit 2;;
   esac
 done
@@ -26,28 +27,41 @@ mkdir -p "$OUT"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
+ARCHIVE=http://archive.ubuntu.com/ubuntu
+PORTS=http://ports.ubuntu.com/ubuntu-ports
 case "$ARCH" in
-  x86_64|amd64) DEBARCH=amd64;;
-  aarch64|arm64) DEBARCH=arm64;;
-  armv7|armhf) DEBARCH=armhf;;
+  x86_64|amd64)   DEBARCH=amd64;  BASE=$ARCHIVE;;
+  i386|i686|x86)  DEBARCH=i386;   BASE=$ARCHIVE;;
+  aarch64|arm64)  DEBARCH=arm64;  BASE=$PORTS;;
+  armv7|armhf)    DEBARCH=armhf;  BASE=$PORTS;;
+  riscv64)        DEBARCH=riscv64; BASE=$PORTS;;
   *) echo "不支持的架构: $ARCH" >&2; exit 2;;
 esac
 
 fetch_host() {
   ( cd "$TMP" && apt-get download bash-static busybox-static ) || {
-    echo "apt-get download 失败：请确认已 apt-get update，且 universe 源可用" >&2
+    echo "apt-get download 失败，尝试直接解析仓库索引..." >&2
     return 1
   }
 }
 
-fetch_ports() {
-  local pkg=$1 comp url
+IDXDIR="$TMP/idx"
+mkdir -p "$IDXDIR"
+
+index_file() {
+  local comp=$1 f="$IDXDIR/$1.gz"
+  if [ ! -s "$f" ]; then
+    curl -fsSL --max-time 120 "$BASE/dists/noble/$comp/binary-$DEBARCH/Packages.gz" -o "$f" || return 1
+  fi
+  echo "$f"
+}
+
+fetch_url() {
+  local pkg=$1 comp f url
   for comp in main universe; do
-    # awk 找到 Filename 后会提前退出，导致 curl 报 23 (SIGPIPE)；
-    # 这里显式忽略管道状态，赋值本身仍然有效。
-    url=$(curl -fsSL --max-time 60 \
-            "http://ports.ubuntu.com/ubuntu-ports/dists/noble/$comp/binary-$DEBARCH/Packages.gz" \
-          | gzip -dc \
+    f=$(index_file "$comp") || continue
+    # awk 命中后提前退出会让 gzip 报 SIGPIPE；这里显式忽略管道状态。
+    url=$(gzip -dc "$f" \
           | awk -v p="$pkg" '$0 == "Package: " p { found=1 } found && /^Filename:/ { print $2; exit }') || true
     if [ -n "${url:-}" ]; then
       echo "$url"
@@ -57,16 +71,22 @@ fetch_ports() {
   return 1
 }
 
-if [ "$DEBARCH" = "$(dpkg --print-architecture)" ]; then
-  echo "从本机 apt 源下载 bash-static / busybox-static ($DEBARCH) ..." >&2
-  fetch_host
-else
-  echo "从 ports.ubuntu.com 下载 $DEBARCH 静态包 ..." >&2
+fetch_remote() {
+  local pkg url
   for pkg in bash-static busybox-static; do
-    url=$(fetch_ports "$pkg") || { echo "找不到 $pkg ($DEBARCH)" >&2; exit 1; }
+    url=$(fetch_url "$pkg") || { echo "找不到 $pkg ($DEBARCH)" >&2; return 1; }
     echo "  $pkg: $url" >&2
-    curl -fL --retry 3 -o "$TMP/$pkg.deb" "http://ports.ubuntu.com/ubuntu-ports/$url"
+    curl -fL --retry 3 --max-time 180 -o "$TMP/$pkg.deb" "$BASE/$url" || return 1
   done
+}
+
+echo "获取 $ARCH ($DEBARCH) 静态 bash/busybox ..." >&2
+if [ "$DEBARCH" = "$(dpkg --print-architecture 2>/dev/null)" ] && [ "$BASE" = "$ARCHIVE" ]; then
+  if ! fetch_host; then
+    fetch_remote
+  fi
+else
+  fetch_remote
 fi
 
 for deb in "$TMP"/*.deb; do dpkg-deb -x "$deb" "$TMP/extract"; done
@@ -80,7 +100,6 @@ chmod 755 "$OUT/bash" "$OUT/busybox" 2>/dev/null || true
 
 if [ ! -x "$OUT/bash" ] || [ ! -x "$OUT/busybox" ]; then
   echo "提取失败：$OUT 下缺少 bash/busybox" >&2
-  find "$TMP/extract" -type f -name '*bash*' -o -name 'busybox' 2>/dev/null >&2
   exit 1
 fi
 

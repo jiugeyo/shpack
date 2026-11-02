@@ -13,36 +13,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # GitHub 网页上传会丢掉 +x，先兜底恢复
       - name: 修复可执行位
         run: bash fix-perms.sh || true
 
-      - name: 安装交叉编译器
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq g++-aarch64-linux-gnu
+      - name: 构建 host 工具与 x86_64 stub
+        run: make -j"$(nproc)"
 
-      - name: 构建 packer + stub（x86_64 / aarch64）
-        run: |
-          make -j"$(nproc)"
-          make ARCH=aarch64 -j"$(nproc)"
+      - name: 生成单文件 builder（4 架构）
+        run: bash scripts/make-builder.sh --arches "x86_64 aarch64 armv7 i386"
 
-      - name: 获取静态 bash/busybox
+      - name: 准备 x86_64 运行时
         run: |
-          bash scripts/fetch-static.sh --arch x86_64 --out runtime/x86_64
-          bash scripts/fetch-static.sh --arch aarch64 --out runtime/aarch64
+          bash scripts/fetch-static.sh --arch x86_64 --out runtime/x86_64 || {
+            echo "下载失败，回退到 prebuilt"
+            mkdir -p runtime/x86_64
+            cp prebuilt/x86_64/bash prebuilt/x86_64/busybox runtime/x86_64/
+          }
 
-      - name: 端到端测试
+      - name: 产物测试（81 项）
         run: bash tests/run-tests.sh
+
+      - name: builder 测试（18 项）
+        run: bash tests/builder-tests.sh
 
       - name: 打包示例
         run: |
-          bash pack.sh -s examples/hello.sh -o dist/hello --compress lz4
-          bash pack.sh --arch aarch64 -s examples/hello.sh -o dist/hello-arm64 --compress lz4
-          (cd dist && sha256sum hello hello-arm64 > SHA256SUMS)
+          ./dist/shpack-builder -s examples/hello.sh -o dist/hello -a x86_64 --compress lz4
+          ./dist/shpack-builder -s examples/hello.sh -o dist/hello-arm64 -a aarch64 --compress lz4
+          ./dist/shpack-builder list
+          (cd dist && sha256sum hello hello-arm64 shpack-builder > SHA256SUMS)
 
       - uses: actions/upload-artifact@v4
         with:
-          name: shpack-binaries
+          name: shpack-dist
           path: dist/
           if-no-files-found: error

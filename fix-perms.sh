@@ -11,8 +11,8 @@ chmod +x \
   tests/*.sh tests/scripts/*.sh \
   examples/*.sh \
   prebuilt/host/shpack \
-  dist/hello dist/hello-arm64 2>/dev/null || true
+  dist/shpack-builder dist/shpack-builder-aarch64 2>/dev/null || true
 
 echo "已恢复可执行位。提交时记得把 mode 一起记录："
-echo "  git add --chmod=+x build.sh pack.sh fix-perms.sh scripts/*.sh tests/*.sh tests/scripts/*.sh examples/*.sh prebuilt/host/shpack dist/hello dist/hello-arm64"
+echo "  git add --chmod=+x build.sh pack.sh fix-perms.sh scripts/*.sh tests/*.sh tests/scripts/*.sh examples/*.sh prebuilt/host/shpack dist/shpack-builder dist/shpack-builder-aarch64"
 echo "  git add . && git commit -m 'fix: restore executable bits' && git push"

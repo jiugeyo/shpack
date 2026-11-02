@@ -17,7 +17,7 @@ jobs:
       - name: 修复可执行位
         run: bash fix-perms.sh || true
 
-      - name: 安装交叉编译器
+      - name: 安装 aarch64 交叉编译器
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq g++-aarch64-linux-gnu
@@ -25,21 +25,24 @@ jobs:
       - name: 构建与测试
         run: |
           make -j"$(nproc)"
-          make ARCH=aarch64 -j"$(nproc)"
-          bash scripts/fetch-static.sh --arch x86_64 --out runtime/x86_64
-          bash scripts/fetch-static.sh --arch aarch64 --out runtime/aarch64
+          bash scripts/make-builder.sh --arches "x86_64 aarch64 armv7 i386" --aarch64-host
+          mkdir -p runtime/x86_64
+          cp prebuilt/x86_64/bash prebuilt/x86_64/busybox runtime/x86_64/
           bash tests/run-tests.sh
+          bash tests/builder-tests.sh
 
       - name: 打包示例
         run: |
-          bash pack.sh -s examples/hello.sh -o dist/hello --compress lz4
-          bash pack.sh --arch aarch64 -s examples/hello.sh -o dist/hello-arm64 --compress lz4
-          (cd dist && sha256sum hello hello-arm64 > SHA256SUMS)
+          ./dist/shpack-builder -s examples/hello.sh -o dist/hello -a x86_64 --compress lz4
+          ./dist/shpack-builder -s examples/hello.sh -o dist/hello-arm64 -a aarch64 --compress lz4
+          (cd dist && sha256sum hello hello-arm64 shpack-builder shpack-builder-aarch64 > SHA256SUMS)
 
       - name: 创建 Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            dist/shpack-builder
+            dist/shpack-builder-aarch64
             dist/hello
             dist/hello-arm64
             dist/SHA256SUMS

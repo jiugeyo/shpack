@@ -1,8 +1,10 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # 便捷打包脚本：自动选择 stub 与静态 bash/busybox。
 #
 #   ./pack.sh -s deploy.sh -o deploy
 #   ./pack.sh --arch aarch64 -s deploy.sh -o deploy-arm64 --compress lz4
+#   ./pack.sh --arch armv7   -s deploy.sh -o deploy-arm32
+#   ./pack.sh --arch i386    -s deploy.sh -o deploy-x86
 #   ./pack.sh -s deploy.sh -- --name 会被当作打包参数，别这样写
 #
 # 其余未识别参数原样传给 build/host/shpack。
@@ -10,6 +12,12 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")" && pwd)
 ARCH=$(uname -m)
+case "$ARCH" in
+  amd64) ARCH=x86_64;;
+  arm64) ARCH=aarch64;;
+  armv7l|armv8l) ARCH=armv7;;
+  i686) ARCH=i386;;
+esac
 SCRIPT=""
 OUTPUT=""
 NAME=""

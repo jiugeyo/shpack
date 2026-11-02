@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <sys/types.h>
 #include <vector>
 
 namespace shpack {
@@ -17,10 +18,17 @@ bool read_file(const std::string& path, std::vector<uint8_t>& out, uint64_t max_
 bool pread_all(int fd, uint64_t off, void* buf, size_t len);
 bool write_all(int fd, const void* buf, size_t len);
 
+// 原子写文件：临时文件 + fsync + rename，成功后权限为 mode。
+bool write_file_atomic(const std::string& path, const void* data, size_t len, mode_t mode,
+                       std::string& err);
+
 std::string path_join(const std::string& dir, const std::string& name);
 std::string base_name(const std::string& path);
 std::string dir_name(const std::string& path);
 std::string absolute_path(const std::string& path);
+
+// 定位当前可执行文件（/proc/self/exe → AT_EXECFN → argv[0]/PATH）。
+std::string executable_path(const char* argv0);
 
 // 去掉 '/'、控制字符等危险字符，返回可用于文件名的字符串。
 std::string sanitize_component(const std::string& s, const std::string& fallback);

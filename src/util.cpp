@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/auxv.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -100,6 +101,39 @@ bool write_all(int fd, const void* buf, size_t len) {
     return true;
 }
 
+bool write_file_atomic(const std::string& path, const void* data, size_t len, mode_t mode,
+                       std::string& err) {
+    static unsigned counter = 0;
+    const std::string tmp = path + ".tmp." + std::to_string(static_cast<long>(::getpid())) + "." +
+                            std::to_string(counter++);
+    ::unlink(tmp.c_str());
+    int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_EXCL, mode);
+    if (fd < 0) {
+        err = errno_msg(errno, "创建 " + tmp);
+        return false;
+    }
+    bool ok = write_all(fd, data, len);
+    if (!ok) err = errno_msg(errno, "写入 " + tmp);
+    if (ok && ::fchmod(fd, mode) != 0) {
+        err = errno_msg(errno, "chmod " + tmp);
+        ok = false;
+    }
+    if (ok && ::fsync(fd) != 0) {
+        err = errno_msg(errno, "fsync " + tmp);
+        ok = false;
+    }
+    if (::close(fd) != 0 && ok) {
+        err = errno_msg(errno, "close " + tmp);
+        ok = false;
+    }
+    if (ok && ::rename(tmp.c_str(), path.c_str()) != 0) {
+        err = errno_msg(errno, "重命名 " + tmp + " -> " + path);
+        ok = false;
+    }
+    if (!ok) ::unlink(tmp.c_str());
+    return ok;
+}
+
 std::string path_join(const std::string& dir, const std::string& name) {
     if (dir.empty()) return name;
     if (dir.back() == '/') return dir + name;
@@ -131,6 +165,33 @@ std::string absolute_path(const std::string& path) {
     char cwd[PATH_MAX];
     if (::getcwd(cwd, sizeof(cwd)) == nullptr) return path;
     return path_join(cwd, path);
+}
+
+std::string executable_path(const char* argv0) {
+    char buf[PATH_MAX];
+    const ssize_t n = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (n > 0) {
+        buf[n] = '\0';
+        return buf;
+    }
+#ifndef AT_EXECFN
+#define AT_EXECFN 31
+#endif
+    const unsigned long execfn = ::getauxval(AT_EXECFN);
+    if (execfn != 0) {
+        const std::string p(reinterpret_cast<const char*>(execfn));
+        if (!p.empty()) return p[0] == '/' ? p : absolute_path(p);
+    }
+    if (argv0 != nullptr && ::strchr(argv0, '/') != nullptr) return absolute_path(argv0);
+    const char* path_env = ::getenv("PATH");
+    if (path_env != nullptr && argv0 != nullptr) {
+        for (const auto& dir : split(path_env, ':')) {
+            if (dir.empty()) continue;
+            const std::string cand = path_join(dir, argv0);
+            if (::access(cand.c_str(), X_OK) == 0) return absolute_path(cand);
+        }
+    }
+    return argv0 ? absolute_path(argv0) : std::string();
 }
 
 std::string sanitize_component(const std::string& s, const std::string& fallback) {

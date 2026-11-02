@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """独立于 C++ launcher 的包格式校验器（用于交叉验证打包结果）。
 
 用法: python3 tests/verify_package.py PKG [--expect-arch aarch64]
@@ -95,10 +95,9 @@ def main():
                 check(m is not None, f"{name} 不是 ELF")
                 if m is not None:
                     line += f" ELF={NAMES.get(m, m)}"
-                    if expect == "aarch64":
-                        check(m == 183, f"{name} 架构不是 aarch64: {m}")
-                    if expect == "x86_64":
-                        check(m == 62, f"{name} 架构不是 x86_64: {m}")
+                    want = {"x86_64": 62, "aarch64": 183, "armv7": 40, "i386": 3}.get(expect)
+                    if want is not None:
+                        check(m == want, f"{name} 架构不是 {expect}: {m}")
         print(line)
 
     if errors:

@@ -4,5 +4,8 @@ runtime/
 .build/
 .toolchain/
 .runtime/
+.cross/
+build-tools/
+.qemu/
 *.o
 *.log

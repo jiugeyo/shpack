@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+﻿// SPDX-License-Identifier: MIT
 //
 // shpack 包格式（v1）
 // ---------------------------------------------------------------------------
@@ -123,7 +123,7 @@ constexpr const char* kEnvArgv0    = "SHPACK_ARGV0";
 constexpr const char* kEnvOrigPath = "SHPACK_ORIG_PATH";
 constexpr const char* kEnvVersion  = "SHPACK_VERSION";
 
-constexpr const char* kToolVersion = "1.0.0";
+constexpr const char* kToolVersion = "2.0.0";
 
 // 负载在内存中的上限，避免恶意/损坏的 Footer 触发天量分配。
 constexpr uint64_t kMaxPayload  = 512ull * 1024 * 1024;
