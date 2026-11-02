@@ -1,0 +1,43 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装交叉编译器
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq g++-aarch64-linux-gnu
+
+      - name: 构建与测试
+        run: |
+          make -j"$(nproc)"
+          make ARCH=aarch64 -j"$(nproc)"
+          ./scripts/fetch-static.sh --arch x86_64 --out runtime/x86_64
+          ./scripts/fetch-static.sh --arch aarch64 --out runtime/aarch64
+          bash tests/run-tests.sh
+
+      - name: 打包示例
+        run: |
+          ./pack.sh -s examples/hello.sh -o dist/hello --compress lz4
+          ./pack.sh --arch aarch64 -s examples/hello.sh -o dist/hello-arm64 --compress lz4
+          (cd dist && sha256sum hello hello-arm64 > SHA256SUMS)
+
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/hello
+            dist/hello-arm64
+            dist/SHA256SUMS
+          generate_release_notes: true
