@@ -78,14 +78,8 @@ echo "已生成 $OUT ($(du -h "$OUT" | cut -f1))"
 if [ "$AARCH64_HOST" = 1 ] && command -v aarch64-linux-gnu-g++ >/dev/null 2>&1; then
   echo
   echo "== 构建 aarch64 主机版 builder ==" >&2
-  ZSTD_A="$ROOT/.deps/zstd-aarch64"
-  if [ ! -f "$ZSTD_A/lib/libzstd.a" ]; then
-    bash "$ROOT/scripts/fetch-zstd.sh" --arch aarch64 --out "$ZSTD_A" >/dev/null
-  fi
   mkdir -p build/host-aarch64
-  make HOST_DIR=build/host-aarch64 HOST_CXX=aarch64-linux-gnu-g++ \
-       ZSTD_CPPFLAGS="-I$ZSTD_A/include" \
-       ZSTD_LIBS="-L$ZSTD_A/lib -lzstd -pthread" builder >/dev/null
+  make HOST_DIR=build/host-aarch64 HOST_CXX=aarch64-linux-gnu-g++ builder >/dev/null
   cp build/host-aarch64/shpack-builder dist/shpack-builder-aarch64
   AARCH64_STRIP=$(command -v aarch64-linux-gnu-strip || echo strip)
   "$AARCH64_STRIP" -s dist/shpack-builder-aarch64 2>/dev/null || true

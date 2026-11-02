@@ -31,8 +31,7 @@ adb shell /data/local/tmp/your-app --help
 ```
 
 交互式向导中，输出文件默认就是输入脚本名（如 `your.sh`），输出权限也跟随输入脚本；
-如果选中 `tar.zst` 压缩，会额外得到 `your.sh.tar.zst`（zstd -22 --ultra --long=31），
-适合上传，解压后再推送。
+打包完成一次后向导直接退出，不会询问继续打包。
 
 也可以直接交互：
 

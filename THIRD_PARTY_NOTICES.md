@@ -9,7 +9,6 @@ GPL 程序：
 | --- | --- | --- | --- |
 | GNU bash | 5.2.21 | GPL-3.0-or-later | Ubuntu 24.04 `bash-static` 二进制包 |
 | BusyBox | 1.36.1 | GPL-2.0-only | Ubuntu 24.04 `busybox-static` 二进制包 |
-| Zstandard (libzstd) | 1.5.5 | BSD-3-Clause | builder 静态链接，用于 tar.zst 极限归档 |
 
 覆盖架构：`amd64`、`arm64`、`armhf`、`i386`。
 
@@ -24,7 +23,6 @@ GPL 程序：
 * 许可证全文见 [`prebuilt/licenses/`](prebuilt/licenses/)：
   * [GPL-3.0](prebuilt/licenses/GPL-3.0.txt)
   * [GPL-2.0](prebuilt/licenses/GPL-2.0.txt)
-  * [BSD-3-Clause (zstd)](prebuilt/licenses/BSD-3-Clause-zstd.txt)
 
 如果你重新分发由本工具打包出的可执行文件（其中包含 bash 与 BusyBox），
 请同时遵守 GPL 的源码提供义务：附上上述源码，或提供有效的书面要约。
