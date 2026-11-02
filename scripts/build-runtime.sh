@@ -48,7 +48,7 @@ if [ -n "$CC_PREFIX" ]; then
   fi
   CROSS="$(cd "$(dirname "$_cc")" && pwd)/${CC_PREFIX}"
 else
-  TOOLCHAIN=$("$ROOT/scripts/get-toolchain.sh" "$ARCH")
+  TOOLCHAIN=$(bash "$ROOT/scripts/get-toolchain.sh" "$ARCH")
   CROSS="$TOOLCHAIN/bin/${TRIPLE}-"
   export PATH="$TOOLCHAIN/bin:$PATH"
 fi

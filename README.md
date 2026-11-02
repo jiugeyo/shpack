@@ -104,6 +104,10 @@ make ARCH=aarch64          # arm64（需要 aarch64-linux-gnu-g++）
 
 `dist/` 里还有已经打好的 `hello` / `hello-arm64`，可以直接
 `adb push dist/hello-arm64 /data/local/tmp/`（仅供快速验证）。
+本地运行前如果提示权限不足，`chmod +x dist/hello dist/hello-arm64` 即可。
+
+> 如果克隆后提示 `Permission denied`，说明可执行位在网页上传时丢了：
+> 执行 `bash fix-perms.sh`（或 `make fix-perms`）即可恢复；CI 也会先跑这一步。
 
 > `prebuilt/host/shpack` 是 x86_64 程序。如果你在 arm64 Linux 上打包，
 > 请先运行 `make` 构建本机 packer；目标 stub 和 bash/busybox 仍可复用。
@@ -337,6 +341,10 @@ adb shell sh /data/local/tmp/android-smoke.sh /data/local/tmp/hello
 ```bash
 git init
 git add .
+# 关键：显式记录可执行位，否则网页上传/某些系统上会变成 100644，
+# CI 会在 ./scripts/fetch-static.sh 处报 Permission denied。
+git add --chmod=+x build.sh pack.sh fix-perms.sh scripts/*.sh tests/*.sh \
+  tests/scripts/*.sh examples/*.sh prebuilt/host/shpack dist/hello dist/hello-arm64
 git commit -m "shpack: static self-contained shell script packer"
 git branch -M main
 git remote add origin git@github.com:<you>/shpack.git
@@ -345,6 +353,23 @@ git push -u origin main
 # 发版：CI 会构建并附上产物
 git tag v1.0.0
 git push origin v1.0.0
+```
+
+验证可执行位已入库：
+
+```bash
+git ls-files -s | grep -E '\.sh$|prebuilt/host/shpack|dist/hello'
+# 应看到 100755，而不是 100644
+```
+
+如果已经用网页上传过、权限位丢了，在本地执行：
+
+```bash
+bash fix-perms.sh
+git add --chmod=+x build.sh pack.sh fix-perms.sh scripts/*.sh tests/*.sh \
+  tests/scripts/*.sh examples/*.sh prebuilt/host/shpack dist/hello dist/hello-arm64
+git commit -m "fix: restore executable bits"
+git push
 ```
 
 内置的 GitHub Actions：
@@ -377,7 +402,7 @@ shpack/
 ├── examples/
 ├── docs/ANDROID.md
 ├── .github/workflows/   CI（构建/测试/Release）
-├── Makefile / build.sh / pack.sh
+├── Makefile / build.sh / pack.sh / fix-perms.sh
 ├── THIRD_PARTY_NOTICES.md
 ├── LICENSE
 └── README.md

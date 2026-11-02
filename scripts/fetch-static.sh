@@ -34,15 +34,21 @@ case "$ARCH" in
 esac
 
 fetch_host() {
-  ( cd "$TMP" && apt-get download bash-static busybox-static >/dev/null 2>&1 )
+  ( cd "$TMP" && apt-get download bash-static busybox-static ) || {
+    echo "apt-get download 失败：请确认已 apt-get update，且 universe 源可用" >&2
+    return 1
+  }
 }
 
 fetch_ports() {
   local pkg=$1 comp url
   for comp in main universe; do
-    url=$(curl -fsSL "http://ports.ubuntu.com/ubuntu-ports/dists/noble/$comp/binary-$DEBARCH/Packages.gz" \
+    # awk 找到 Filename 后会提前退出，导致 curl 报 23 (SIGPIPE)；
+    # 这里显式忽略管道状态，赋值本身仍然有效。
+    url=$(curl -fsSL --max-time 60 \
+            "http://ports.ubuntu.com/ubuntu-ports/dists/noble/$comp/binary-$DEBARCH/Packages.gz" \
           | gzip -dc \
-          | awk -v p="$pkg" '$0 == "Package: " p { found=1 } found && /^Filename:/ { print $2; exit }')
+          | awk -v p="$pkg" '$0 == "Package: " p { found=1 } found && /^Filename:/ { print $2; exit }') || true
     if [ -n "${url:-}" ]; then
       echo "$url"
       return 0

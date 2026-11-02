@@ -29,7 +29,7 @@ BUILD := build
 HOST_DIR := $(BUILD)/host
 TARGET_DIR := $(BUILD)/$(ARCH)
 
-.PHONY: all packer stub clean check
+.PHONY: all packer stub clean check fix-perms
 
 all: packer stub
 
@@ -49,6 +49,9 @@ check: all
 	@file $(HOST_DIR)/shpack $(TARGET_DIR)/shpack-stub
 	@echo "--- 动态依赖检查（应为 'not a dynamic executable'）---"
 	@ldd $(TARGET_DIR)/shpack-stub 2>&1 || true
+
+fix-perms:
+	bash fix-perms.sh
 
 clean:
 	rm -rf $(BUILD) .build

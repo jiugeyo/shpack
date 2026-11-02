@@ -78,6 +78,10 @@ if [ -z "${PACKER:-}" ]; then
     PACKER=$ROOT/prebuilt/host/shpack
   fi
 fi
+# 网页上传/解压可能丢掉可执行位，这里兜底
+if [ -f "$PACKER" ] && [ ! -x "$PACKER" ]; then
+  chmod +x "$PACKER" 2>/dev/null || true
+fi
 [ -x "$PACKER" ] || { echo "缺少 packer，请运行 ./build.sh（或使用仓库自带的 prebuilt/host/shpack）" >&2; exit 1; }
 [ -f "$STUB" ] || { echo "缺少 stub: $STUB，请运行 ./build.sh --arch $ARCH" >&2; exit 1; }
 [ -f "$BASH_BIN" ] || { echo "缺少静态 bash: $BASH_BIN，请运行 scripts/fetch-static.sh --arch $ARCH" >&2; exit 1; }

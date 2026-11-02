@@ -13,6 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # GitHub 网页上传会丢掉 +x，先兜底恢复
+      - name: 修复可执行位
+        run: bash fix-perms.sh || true
+
       - name: 安装交叉编译器
         run: |
           sudo apt-get update -qq
@@ -25,16 +29,16 @@ jobs:
 
       - name: 获取静态 bash/busybox
         run: |
-          ./scripts/fetch-static.sh --arch x86_64 --out runtime/x86_64
-          ./scripts/fetch-static.sh --arch aarch64 --out runtime/aarch64
+          bash scripts/fetch-static.sh --arch x86_64 --out runtime/x86_64
+          bash scripts/fetch-static.sh --arch aarch64 --out runtime/aarch64
 
       - name: 端到端测试
         run: bash tests/run-tests.sh
 
       - name: 打包示例
         run: |
-          ./pack.sh -s examples/hello.sh -o dist/hello --compress lz4
-          ./pack.sh --arch aarch64 -s examples/hello.sh -o dist/hello-arm64 --compress lz4
+          bash pack.sh -s examples/hello.sh -o dist/hello --compress lz4
+          bash pack.sh --arch aarch64 -s examples/hello.sh -o dist/hello-arm64 --compress lz4
           (cd dist && sha256sum hello hello-arm64 > SHA256SUMS)
 
       - uses: actions/upload-artifact@v4
