@@ -20,7 +20,7 @@ jobs:
       - name: 安装 aarch64 交叉编译器
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq g++-aarch64-linux-gnu
+          sudo apt-get install -y -qq g++-aarch64-linux-gnu libzstd-dev zstd
 
       - name: 构建与测试
         run: |

@@ -194,12 +194,19 @@ int main(int argc, char** argv) {
     std::string err;
     if (!assemble_package(in, po, res, err)) die(err);
 
-    if (!write_file_atomic(opt.output, res.image.data(), res.image.size(), 0755, err))
+    mode_t omode = 0755;
+    struct stat sst;
+    if (::stat(opt.script.c_str(), &sst) == 0) {
+        const mode_t m = sst.st_mode & 0777;
+        if (m != 0) omode = m;
+    }
+    if (!write_file_atomic(opt.output, res.image.data(), res.image.size(), omode, err))
         die(err);
 
     if (opt.verbose) {
         std::printf("shpack %s\n", kToolVersion);
         std::printf("  脚本     %s\n", opt.script.c_str());
+        std::printf("  权限     %03o（跟随脚本）\n", static_cast<unsigned>(omode));
         std::printf("  配置     %u 项, %s\n", res.cfg_count, human_size(res.cfg_size).c_str());
     }
     std::printf("已生成 %s (%s)\n", opt.output.c_str(), human_size(res.image.size()).c_str());

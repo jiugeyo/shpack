@@ -5,6 +5,7 @@ runtime/
 .toolchain/
 .runtime/
 .cross/
+.deps/
 build-tools/
 .qemu/
 *.o

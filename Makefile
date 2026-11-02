@@ -20,6 +20,8 @@ CXXFLAGS ?= -std=c++17 -O2 $(WARN)
 STUB_CXXFLAGS := -std=c++17 -Os $(WARN) -fno-exceptions -fno-rtti \
                  -ffunction-sections -fdata-sections -DNDEBUG
 STUB_LDFLAGS := -static -s -Wl,--gc-sections
+ZSTD_CPPFLAGS ?=
+ZSTD_LIBS ?= -lzstd -pthread
 
 COMMON_SRC := src/sha256.cpp src/lz4.cpp src/util.cpp
 PACKAGE_SRC := $(COMMON_SRC) src/package.cpp
@@ -52,7 +54,7 @@ $(HOST_DIR)/shpack: $(PACKER_SRC) $(HEADERS)
 
 $(HOST_DIR)/shpack-builder: $(BUILDER_SRC) $(HEADERS)
 	@mkdir -p $(dir $@)
-	$(HOST_CXX) $(CXXFLAGS) -o $@ $(BUILDER_SRC) -static
+	$(HOST_CXX) $(CXXFLAGS) $(ZSTD_CPPFLAGS) -o $@ $(BUILDER_SRC) -static $(ZSTD_LIBS)
 
 $(HOST_DIR)/shpack-bundler: $(BUNDLER_SRC) $(HEADERS)
 	@mkdir -p $(dir $@)

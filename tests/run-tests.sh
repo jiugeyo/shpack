@@ -284,6 +284,7 @@ section "14. 大脚本 / bash 选项 / PATH 模式"
   for i in $(seq 1 8000); do echo "# filler $i"; done
   echo 'echo BIG-OK'
 } >"$WORK/big.sh"
+chmod 755 "$WORK/big.sh"
 pack --script "$WORK/big.sh" -o "$WORK/big" --compress lz4 >/dev/null 2>&1
 OUT=$("$WORK/big" 2>&1); eq "大脚本退出码" 0 "$?"
 contains "BIG-OK" "$OUT" "大脚本输出"
@@ -311,6 +312,11 @@ OUT=$("$WORK/named" 2>&1)
 contains "script     : " "$OUT" "脚本路径"
 
 OUT=$("$WORK/hello" --no-preflight 2>&1); eq "--no-preflight" 0 "$?"
+
+cp examples/hello.sh "$WORK/mode640.sh"
+chmod 640 "$WORK/mode640.sh"
+pack --script "$WORK/mode640.sh" -o "$WORK/mode640" >/dev/null 2>&1
+eq "输出权限跟随脚本" 640 "$(stat -c %a "$WORK/mode640")"
 
 # ---------------------------------------------------------------------------
 echo

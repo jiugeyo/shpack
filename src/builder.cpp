@@ -10,12 +10,14 @@
 #include <sys/stat.h>
 #include <sys/utsname.h>
 #include <unistd.h>
+#include <zstd.h>
 
 #include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -158,6 +160,79 @@ void print_stats(const std::string& output, const PackageResult& r) {
     std::printf("  build   : %s\n", to_hex(r.build_id, 8).c_str());
 }
 
+mode_t script_mode(const std::string& path) {
+    struct stat st;
+    if (::stat(path.c_str(), &st) != 0) return 0755;
+    const mode_t m = st.st_mode & 0777;
+    return m == 0 ? 0644 : m;
+}
+
+void put_octal(char* p, size_t n, unsigned long long v) {
+    std::snprintf(p, n, "%0*llo", static_cast<int>(n - 1), v);
+}
+
+void tar_header(uint8_t* h, const std::string& name, uint64_t size, mode_t mode, int64_t mtime) {
+    std::memset(h, 0, 512);
+    std::memcpy(h, name.data(), name.size());
+    put_octal(reinterpret_cast<char*>(h + 100), 8, mode & 0777);
+    put_octal(reinterpret_cast<char*>(h + 108), 8, 0);
+    put_octal(reinterpret_cast<char*>(h + 116), 8, 0);
+    put_octal(reinterpret_cast<char*>(h + 124), 12, size);
+    put_octal(reinterpret_cast<char*>(h + 136), 12, static_cast<unsigned long long>(mtime));
+    std::memset(h + 148, ' ', 8);
+    h[156] = '0';
+    std::memcpy(h + 257, "ustar", 6);
+    std::memcpy(h + 263, "00", 2);
+    std::memcpy(h + 265, "root", 4);
+    std::memcpy(h + 297, "root", 4);
+    unsigned long sum = 0;
+    for (int i = 0; i < 512; ++i) sum += h[i];
+    std::snprintf(reinterpret_cast<char*>(h + 148), 8, "%06lo", sum);
+    h[155] = ' ';
+}
+
+// 生成 <output>.tar.zst：tar(ELF) 再用 zstd -22 --ultra --long=31 压缩。
+bool make_tar_zst(const std::string& output, const std::string& name,
+                  const std::vector<uint8_t>& image, mode_t mode, std::string& archive_path,
+                  uint64_t& archive_size, std::string& err) {
+    if (name.size() > 100) {
+        err = "输出文件名过长（tar 限制 100 字节）";
+        return false;
+    }
+    std::vector<uint8_t> tar;
+    tar.reserve(image.size() + 1536);
+    uint8_t header[512];
+    tar_header(header, name, image.size(), mode, static_cast<int64_t>(std::time(nullptr)));
+    tar.insert(tar.end(), header, header + 512);
+    tar.insert(tar.end(), image.begin(), image.end());
+    const size_t pad = (512 - (image.size() % 512)) % 512;
+    tar.insert(tar.end(), pad, 0);
+    tar.insert(tar.end(), 1024, 0);  // 两个全零块表示结束
+
+    ZSTD_CCtx* cctx = ZSTD_createCCtx();
+    if (cctx == nullptr) {
+        err = "ZSTD_createCCtx 失败";
+        return false;
+    }
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 22);
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 31);
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_enableLongDistanceMatching, 1);
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+
+    std::vector<uint8_t> packed(ZSTD_compressBound(tar.size()));
+    const size_t n = ZSTD_compress2(cctx, packed.data(), packed.size(), tar.data(), tar.size());
+    ZSTD_freeCCtx(cctx);
+    if (ZSTD_isError(n)) {
+        err = std::string("zstd 压缩失败: ") + ZSTD_getErrorName(n);
+        return false;
+    }
+    packed.resize(n);
+    archive_path = output + ".tar.zst";
+    if (!write_file_atomic(archive_path, packed.data(), packed.size(), 0644, err)) return false;
+    archive_size = packed.size();
+    return true;
+}
+
 struct Request {
     std::string arch;
     std::string script;
@@ -169,9 +244,17 @@ struct Request {
     std::vector<std::string> envs;
     std::vector<std::string> bashopts;
     bool cleanup = true;
+    bool archive = false;
 };
 
-bool build_one(Bundle& bundle, const Request& req, PackageResult& result, std::string& err) {
+struct BuildOutput {
+    PackageResult result;
+    mode_t mode = 0755;
+    std::string archive_path;
+    uint64_t archive_size = 0;
+};
+
+bool build_one(Bundle& bundle, const Request& req, BuildOutput& out, std::string& err) {
     if (!bundle.has(req.arch, "stub") || !bundle.has(req.arch, "bash") ||
         !bundle.has(req.arch, "busybox")) {
         err = "该 builder 未内嵌架构: " + req.arch;
@@ -189,6 +272,7 @@ bool build_one(Bundle& bundle, const Request& req, PackageResult& result, std::s
         return false;
     }
 
+    const mode_t omode = script_mode(req.script);
     PackageOptions po;
     po.name = req.name.empty() ? default_name(req.script) : req.name;
     po.mode = req.mode;
@@ -198,9 +282,20 @@ bool build_one(Bundle& bundle, const Request& req, PackageResult& result, std::s
     po.cleanup = req.cleanup;
     po.envs = req.envs;
     po.bashopts = req.bashopts;
-    if (!assemble_package(in, po, result, err)) return false;
-    if (!write_file_atomic(req.output, result.image.data(), result.image.size(), 0755, err))
+    if (!assemble_package(in, po, out.result, err)) return false;
+    if (!write_file_atomic(req.output, out.result.image.data(), out.result.image.size(), omode, err))
         return false;
+    out.mode = omode;
+
+    if (req.archive) {
+        PackageOptions raw = po;
+        raw.compress = "none";
+        PackageResult raw_result;
+        if (!assemble_package(in, raw, raw_result, err)) return false;
+        if (!make_tar_zst(req.output, base_name(req.output), raw_result.image, omode,
+                          out.archive_path, out.archive_size, err))
+            return false;
+    }
     return true;
 }
 
@@ -310,6 +405,12 @@ bool parse_pack_args(const std::vector<std::string>& args, Request& req) {
         }
     }
     if (!have_script || !have_output) die("pack 需要 -s 和 -o");
+    if (req.compress == "tar.zst" || req.compress == "zstd") {
+        req.archive = true;
+        req.compress = "auto";
+    } else if (req.compress != "auto" && req.compress != "lz4" && req.compress != "none") {
+        die("--compress 只支持 auto|lz4|none|tar.zst");
+    }
     if (req.name.empty()) req.name = default_name(req.script);
     return true;
 }
@@ -352,21 +453,26 @@ bool interactive(Bundle& bundle) {
     const int ai = menu("目标架构", arch_items, def_arch);
     req.arch = arches[static_cast<size_t>(ai)];
 
+    const std::string script_base = base_name(script);
     req.name = default_name(script);
     read_line("包名", req.name, req.name);
     req.name = sanitize_component(req.name, "app");
 
-    std::string output = req.name;
+    // 输出默认取输入脚本的文件名（含扩展名），并避免覆盖输入本身。
+    std::string output = script_base;
     for (;;) {
         if (!read_line("输出文件", output, output)) return false;
-        if (output.empty()) output = req.name;
+        if (output.empty()) output = script_base;
+        if (absolute_path(output) == absolute_path(script)) {
+            std::printf("输出路径不能与输入脚本相同: %s\n", output.c_str());
+            continue;
+        }
         const std::string dir = dir_name(output);
         if (::access(dir.c_str(), W_OK | X_OK) != 0) {
             std::printf("目录不可写: %s\n", dir.c_str());
             continue;
         }
-        if (::access(output.c_str(), F_OK) == 0 &&
-            !yes_no("文件已存在，覆盖?", false)) {
+        if (::access(output.c_str(), F_OK) == 0 && !yes_no("文件已存在，覆盖?", false)) {
             continue;
         }
         break;
@@ -377,8 +483,16 @@ bool interactive(Bundle& bundle) {
                         {"auto（优先纯内存）", "memfd（强制纯内存）", "dir（落盘，兼容性最好）"}, 0);
     req.mode = mi == 0 ? "auto" : (mi == 1 ? "memfd" : "dir");
 
-    const int ci = menu("压缩", {"auto（推荐）", "lz4", "none"}, 0);
-    req.compress = ci == 0 ? "auto" : (ci == 1 ? "lz4" : "none");
+    const int ci = menu("压缩",
+                        {"auto（推荐）", "lz4", "none",
+                         "tar.zst（额外生成 -22 --ultra --long=31 极限归档）"},
+                        0);
+    if (ci == 3) {
+        req.archive = true;
+        req.compress = "auto";
+    } else {
+        req.compress = ci == 0 ? "auto" : (ci == 1 ? "lz4" : "none");
+    }
 
     std::printf("\n%s\n", dim("环境变量（K=V），留空结束：").c_str());
     for (;;) {
@@ -402,9 +516,10 @@ bool interactive(Bundle& bundle) {
     std::printf("  脚本   : %s\n", req.script.c_str());
     std::printf("  架构   : %s\n", req.arch.c_str());
     std::printf("  输出   : %s\n", req.output.c_str());
+    std::printf("  权限   : %03o（跟随输入脚本）\n", static_cast<unsigned>(script_mode(script)));
     std::printf("  名称   : %s\n", req.name.c_str());
     std::printf("  模式   : %s\n", req.mode.c_str());
-    std::printf("  压缩   : %s\n", req.compress.c_str());
+    std::printf("  压缩   : %s\n", req.archive ? "tar.zst（额外归档）" : req.compress.c_str());
     if (!req.envs.empty()) {
         std::printf("  环境   :");
         for (const auto& e : req.envs) std::printf(" %s", e.c_str());
@@ -412,18 +527,22 @@ bool interactive(Bundle& bundle) {
     }
     if (!yes_no("开始打包?", true)) return false;
 
-    PackageResult result;
+    BuildOutput built;
     std::string err;
-    if (!build_one(bundle, req, result, err)) {
+    if (!build_one(bundle, req, built, err)) {
         std::printf("%s %s\n", c("31", "失败:").c_str(), err.c_str());
         return yes_no("再试一次?", true);
     }
-    print_stats(req.output, result);
-    std::printf("\n  下一步: %s\n",
-                dim("adb push " + base_name(req.output) +
-                    " /data/local/tmp/ && adb shell chmod 755 /data/local/tmp/" +
-                    base_name(req.output))
-                    .c_str());
+    print_stats(req.output, built.result);
+    std::printf("  权限    : %03o（跟随输入脚本）\n", static_cast<unsigned>(built.mode));
+    if ((built.mode & 0111) == 0)
+        std::printf("  %s\n", dim("提示: 输入脚本没有执行位，输出也没有；需要时 chmod +x").c_str());
+    if (!built.archive_path.empty()) {
+        std::printf("  tar.zst : %s (%s)\n", built.archive_path.c_str(),
+                    human_size(built.archive_size).c_str());
+        std::printf("            %s\n",
+                    dim("解压: tar --zstd -xf " + base_name(built.archive_path)).c_str());
+    }
     return yes_no("\n再打一个?", false);
 }
 
@@ -518,8 +637,15 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    PackageResult result;
-    if (!build_one(bundle, req, result, err)) die(err);
-    print_stats(req.output, result);
+    BuildOutput built;
+    if (!build_one(bundle, req, built, err)) die(err);
+    print_stats(req.output, built.result);
+    std::printf("  权限    : %03o（跟随输入脚本）\n", static_cast<unsigned>(built.mode));
+    if ((built.mode & 0111) == 0)
+        std::printf("  %s\n", dim("提示: 输入脚本没有执行位，输出也没有；需要时 chmod +x").c_str());
+    if (!built.archive_path.empty()) {
+        std::printf("  tar.zst : %s (%s)\n", built.archive_path.c_str(),
+                    human_size(built.archive_size).c_str());
+    }
     return 0;
 }

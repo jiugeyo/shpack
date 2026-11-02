@@ -1,5 +1,8 @@
 * text=auto eol=lf
 
-prebuilt/** binary
+prebuilt/*/bash binary
+prebuilt/*/busybox binary
+prebuilt/host/shpack binary
+prebuilt/stub/** binary
 dist/** binary
 *.png binary

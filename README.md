@@ -1,4 +1,4 @@
-# shpack
+﻿# shpack
 
 **一个静态 ELF，内置 4 种架构的 bash/busybox：运行它，交互式把 shell 脚本打成自包含可执行文件。**
 
@@ -6,7 +6,7 @@
 [![arch](https://img.shields.io/badge/target-x86__64%20%7C%20aarch64%20%7C%20armv7%20%7C%20i386-informational)](#)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-`dist/shpack-builder` 是单文件、纯静态、无依赖的打包器（x86_64 主机，约 14 MB）。
+`dist/shpack-builder` 是单文件、纯静态、无依赖的打包器（x86_64 主机，约 15 MB）。
 把它拷到任意 Linux / WSL / Android(Termux) 上执行，它会在终端里问几个问题，
 然后产出一个目标架构的**自包含 ELF**——目标机器不需要 bash、coreutils、动态库，
 默认运行时也不往磁盘写任何东西。
@@ -70,7 +70,7 @@ shpack-builder -s SCRIPT -o OUT -a ARCH [选项]
 
   -a, --arch      x86_64 | aarch64 | armv7 | i386
   -n, --name      包名 / 运行时脚本文件名
-  --compress      auto | lz4 | none
+  --compress      auto | lz4 | none | tar.zst
   --mode          auto | memfd | dir
   --path-mode     busybox | system
   --env K=V       注入环境变量（可重复）
@@ -87,6 +87,33 @@ shpack-builder -s SCRIPT -o OUT -a ARCH [选项]
 ./shpack-builder extract --arch aarch64 --out runtime
 ./shpack-builder --bundle build/shpack.bundle list
 ```
+
+### 2.1 输出默认值
+
+交互式向导里：
+
+* **输出文件默认 = 输入脚本的文件名（含扩展名）**，例如 `deploy.sh`；
+* **输出权限 = 输入脚本的权限**（`stat -c %a`），不会自动补 `+x`；
+  脚本本身没有执行位时，输出会提示手动 `chmod +x`；
+* 输出路径如果和输入脚本相同，会拒绝并让你重新输入，避免覆盖源码。
+
+### 2.2 tar.zst 极限归档
+
+压缩菜单第 4 项（或 `--compress tar.zst`）会：
+
+1. 正常生成可执行 ELF（可执行位仍跟随脚本）；
+2. 额外生成 `<output>.tar.zst`：tar 内放**未压缩 ELF**，再用 zstd
+   `-22 --ultra --long=31` 极限压缩，得到最小上传体积。
+
+实测 `hello`：
+
+```
+可执行 ELF     3.6 MB
+tar.zst        1.7 MB
+```
+
+解压：`tar --zstd -xf app.tar.zst`（需要系统有 zstd）。这是**分发归档**，
+解压出的 ELF 才能直接运行。builder 静态链接了 libzstd，不依赖外部 `zstd` 命令。
 
 ---
 
@@ -170,6 +197,8 @@ adb shell /data/local/tmp/your-app
 
 ## 6. 自己构建
 
+依赖：`g++`、`make`、`libzstd-dev`（builder 的 tar.zst 归档），以及可选的交叉编译器。
+
 ```bash
 make                                   # 构建 host packer/builder/bundler + 本机 stub
 make ARCH=aarch64                      # 需要 aarch64-linux-gnu-g++
@@ -236,8 +265,8 @@ Footer 固定 256 字节，位于文件末尾；所有整数小端序。
 ## 8. 测试
 
 ```bash
-bash tests/run-tests.sh        # 81 项：产物运行/编码/模式/异常
-bash tests/builder-tests.sh    # 18 项：4 架构打包 + 交互式 + extract
+bash tests/run-tests.sh        # 82 项：产物运行/编码/模式/异常
+bash tests/builder-tests.sh    # 22 项：4 架构打包 + 交互式 + extract + tar.zst
 python3 tests/verify_package.py dist/... --expect-arch aarch64
 ```
 
@@ -245,8 +274,8 @@ python3 tests/verify_package.py dist/... --expect-arch aarch64
 
 | 项目 | 结果 |
 | --- | --- |
-| x86_64 产物 | 81/81 测试通过；真实执行 |
-| 单文件 builder | 4 架构打包 + 交互向导 + extract，18/18 通过 |
+| x86_64 产物 | 82/82 测试通过；真实执行 |
+| 单文件 builder | 4 架构打包 + 交互向导 + extract + tar.zst，22/22 通过 |
 | aarch64/armv7/i386 产物 | 独立校验器通过（ELF class/machine/哈希/偏移正确） |
 | aarch64 主机 builder | 交叉编译成功（静态 ELF） |
 | armv7/i386 动态执行 | **未验证**：WSL1 不支持 32 位 ELF，qemu-user 也无法在 WSL1 定点映射 |
@@ -274,10 +303,11 @@ shpack/
 │   ├── make-builder.sh   组装单文件 builder
 │   ├── fetch-static.sh   下载官方静态 bash/busybox
 │   ├── fetch-cross.sh    无 root 组装 armv7/i386 交叉工具链
+│   ├── fetch-zstd.sh     获取 aarch64 静态 libzstd
 │   └── build-runtime.sh  从源码构建 musl 运行时
 ├── tests/
-│   ├── run-tests.sh      81 项产物测试
-│   ├── builder-tests.sh  18 项 builder 测试
+│   ├── run-tests.sh      82 项产物测试
+│   ├── builder-tests.sh  22 项 builder 测试
 │   ├── verify_package.py 独立格式校验
 │   └── android-smoke.sh  手机冒烟
 ├── examples/
@@ -311,7 +341,7 @@ CI（`.github/workflows/build.yml`）会：
 
 1. `make` 构建 host 工具与 x86_64 stub；
 2. `scripts/make-builder.sh` 用 prebuilt 组装 4 架构 builder；
-3. 跑 81 项产物测试 + 18 项 builder 测试；
+3. 跑 82 项产物测试 + 22 项 builder 测试；
 4. 上传 `dist/`。
 
 Release（`release.yml`）额外交叉编译 `shpack-builder-aarch64` 并附到 Release。
@@ -341,5 +371,6 @@ git add --chmod=+x ... && git commit -m "fix: restore executable bits" && git pu
 * 目标产物只支持 Linux 内核（Android 可以）；
 * 纯内存模式的 applet 是 bash 函数，`sh -c` / `xargs` 等非 bash 子进程看不到；
   需要完整 PATH 语义时用 `--mode dir`；
+* `tar.zst` 是**额外归档**，解压需要 `zstd`；归档内是未压缩 ELF，适合上传分发；
 * armv7/i386 产物未在真实 32 位环境执行验证，仅做了 ELF/格式校验；
 * 极老内核（< 3.7）建议改用 musl 版本重新打包。
