@@ -35,7 +35,12 @@ jobs:
         run: |
           ./dist/shpack-builder -s examples/hello.sh -o dist/hello -a x86_64 --compress lz4
           ./dist/shpack-builder -s examples/hello.sh -o dist/hello-arm64 -a aarch64 --compress lz4
-          (cd dist && sha256sum hello hello-arm64 shpack-builder shpack-builder-aarch64 > SHA256SUMS)
+          # 兼容旧下载名（用户习惯 ./shpack-aarch64.sh）
+          cp dist/shpack-builder dist/shpack-X86_64.sh
+          cp dist/shpack-builder-aarch64 dist/shpack-aarch64.sh
+          chmod 755 dist/shpack-X86_64.sh dist/shpack-aarch64.sh
+          (cd dist && sha256sum hello hello-arm64 shpack-builder shpack-builder-aarch64 \
+             shpack-X86_64.sh shpack-aarch64.sh > SHA256SUMS)
 
       - name: 创建 Release
         uses: softprops/action-gh-release@v2
@@ -43,6 +48,8 @@ jobs:
           files: |
             dist/shpack-builder
             dist/shpack-builder-aarch64
+            dist/shpack-X86_64.sh
+            dist/shpack-aarch64.sh
             dist/hello
             dist/hello-arm64
             dist/SHA256SUMS

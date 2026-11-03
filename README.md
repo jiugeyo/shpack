@@ -42,6 +42,9 @@ shpack-builder 交互式打包
 | `dist/shpack-builder` | x86_64 Linux / WSL |
 | `dist/shpack-builder-aarch64` | aarch64 Linux / Android Termux |
 
+> GitHub Release 里同时保留旧下载名 `shpack-aarch64.sh` / `shpack-X86_64.sh`，
+> 内容分别等同于 `shpack-builder-aarch64` / `shpack-builder`。
+
 > builder 本身是 ELF，不能直接在 Windows/macOS 上运行；Windows 用 WSL，
 > macOS 用 Linux 容器。产物只面向 Linux 内核（Android 是 Linux）。
 
