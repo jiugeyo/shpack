@@ -53,6 +53,19 @@ for arch in $ARCHES; do
     continue
   fi
 
+  if [ "$arch" = aarch64 ]; then
+    stage="build/patch-stage/aarch64"
+    mkdir -p "$stage"
+    cp "$stub" "$stage/shpack-stub"
+    cp "$bash_bin" "$stage/bash"
+    cp "$bb_bin" "$stage/busybox"
+    # 兼容 Termux untrusted_app seccomp；已打过补丁的文件会 0 处修改。
+    python3 scripts/patch-android.py "$stage/shpack-stub" "$stage/bash" "$stage/busybox" >/dev/null || true
+    stub="$stage/shpack-stub"
+    bash_bin="$stage/bash"
+    bb_bin="$stage/busybox"
+  fi
+
   args+=(--arch "$arch" --stub "$stub" --bash "$bash_bin" --busybox "$bb_bin")
   summary+=("$arch: $(basename "$stub") + $(basename "$bash_bin")")
 done
@@ -85,5 +98,7 @@ if [ "$AARCH64_HOST" = 1 ] && command -v aarch64-linux-gnu-g++ >/dev/null 2>&1; 
   "$AARCH64_STRIP" -s dist/shpack-builder-aarch64 2>/dev/null || true
   cat build/shpack.bundle >>dist/shpack-builder-aarch64
   chmod 755 dist/shpack-builder-aarch64
+  # Termux/untrusted_app seccomp 兼容：set_robust_list / rseq / set*id
+  python3 "$ROOT/scripts/patch-android.py" dist/shpack-builder-aarch64 >/dev/null
   file dist/shpack-builder-aarch64
 fi

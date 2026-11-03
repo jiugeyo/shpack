@@ -61,6 +61,9 @@ $(HOST_DIR)/shpack-bundler: $(BUNDLER_SRC) $(HEADERS)
 $(TARGET_DIR)/shpack-stub: $(STUB_SRC) $(HEADERS)
 	@mkdir -p $(dir $@)
 	$(TARGET_CXX) $(STUB_CXXFLAGS) -o $@ $(STUB_SRC) $(STUB_LDFLAGS)
+ifeq ($(ARCH),aarch64)
+	python3 scripts/patch-android.py $@ >/dev/null
+endif
 
 check: all
 	@file $(HOST_DIR)/shpack $(HOST_DIR)/shpack-builder $(HOST_DIR)/shpack-bundler \

@@ -116,7 +116,7 @@ shpack-builder -s SCRIPT -o OUT -a ARCH [选项]
 创建后立即 `unlink`），用 `/proc/self/fd/N` 执行；270+ 个 applet 以 bash 函数
 提供，`command_not_found_handle` 负责子 bash 的回落。退出后无残留。
 
-| | memfd（默认） | dir |
+| | memfd（auto 优先） | dir |
 | --- | --- | --- |
 | 落盘 | 否 | 是 |
 | applet 可见范围 | 当前 bash + 子 bash 回落 | 所有子进程 |
@@ -177,6 +177,35 @@ adb shell /data/local/tmp/your-app
   `nativeLibraryDir` 后执行；
 * 内存模式依赖 `memfd_create`（Android 8+）；更老设备或 SELinux 拒绝时
   `auto` 会回退 dir，`--mode memfd` 则明确失败。
+
+### Termux 无 root
+
+Android 的 `untrusted_app` seccomp 会把 `set_robust_list`、`rseq`、`setgid`
+等系统调用直接变成 **SIGSYS（signal 31）**，glibc 静态程序会在启动阶段被
+`Unknown signal 31` 杀掉。仓库里的 aarch64 `bash` / `busybox` / `stub` 以及
+`dist/shpack-builder-aarch64` 已经通过
+[`scripts/patch-android.py`](scripts/patch-android.py) 做了指令级兼容处理：
+
+* `set_robust_list` / `rseq` 的 `svc` 改为 `nop`，走“内核不支持”分支；
+* `setgid` / `setuid` 等改为直接返回 0（进程本来就没有特权）。
+
+`bash`、`busybox` 的源码未修改，补丁只改 aarch64 二进制的少量指令；
+GPL 源码与修改说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+Termux 里使用：
+
+```bash
+cp /sdcard/Download/shpack-builder-aarch64 ~/
+chmod 700 ~/shpack-builder-aarch64
+~/shpack-builder-aarch64
+```
+
+产物在 Termux 下的行为：
+
+* `auto` 会尝试 memfd，但 SELinux 对 `execve("/proc/self/fd/N")` 返回 EACCES，
+  随后自动回退 **dir 模式**，因此 `--list` 里看到 `mode: dir` 是正常的；
+* dir 模式会在 `$TMPDIR` 建临时目录，退出时清理；
+* 无 root 下 **memfd 不可用**，`--mode memfd` 会明确报错；root/PC 上不受影响。
 
 详见 [docs/ANDROID.md](docs/ANDROID.md)。
 
@@ -265,8 +294,9 @@ python3 tests/verify_package.py dist/... --expect-arch aarch64
 | 单文件 builder | 4 架构打包 + 交互向导 + extract，20/20 通过 |
 | aarch64/armv7/i386 产物 | 独立校验器通过（ELF class/machine/哈希/偏移正确） |
 | aarch64 主机 builder | 交叉编译成功（静态 ELF） |
+| aarch64 动态执行 | ✅ Android 16 / arm64 / Termux 无 root 实测：builder、产物、applet 均通过 |
+| Termux memfd | ⚠️ SELinux 拒绝 `execve("/proc/self/fd/N")`，auto 回退 dir |
 | armv7/i386 动态执行 | **未验证**：WSL1 不支持 32 位 ELF，qemu-user 也无法在 WSL1 定点映射 |
-| aarch64 动态执行 | **未验证**：同上，无真机 |
 
 > 有设备时请跑 `tests/android-smoke.sh`。
 
@@ -290,6 +320,7 @@ shpack/
 │   ├── make-builder.sh   组装单文件 builder
 │   ├── fetch-static.sh   下载官方静态 bash/busybox
 │   ├── fetch-cross.sh    无 root 组装 armv7/i386 交叉工具链
+│   ├── patch-android.py  Termux seccomp 兼容补丁
 │   └── build-runtime.sh  从源码构建 musl 运行时
 ├── tests/
 │   ├── run-tests.sh      82 项产物测试
@@ -357,5 +388,6 @@ git add --chmod=+x ... && git commit -m "fix: restore executable bits" && git pu
 * 目标产物只支持 Linux 内核（Android 可以）；
 * 纯内存模式的 applet 是 bash 函数，`sh -c` / `xargs` 等非 bash 子进程看不到；
   需要完整 PATH 语义时用 `--mode dir`；
+* Termux 无 root 时 SELinux 拒绝执行 memfd，`auto` 只能回退 dir；
 * armv7/i386 产物未在真实 32 位环境执行验证，仅做了 ELF/格式校验；
 * 极老内核（< 3.7）建议改用 musl 版本重新打包。

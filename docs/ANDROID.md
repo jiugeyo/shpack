@@ -50,6 +50,29 @@ chmod +x ~/shpack-builder-aarch64
 
 builder 内置了 4 个架构的 bash/busybox，所以在手机上可以直接打 arm64/armv7 包。
 
+#### Termux 无 root（重要）
+
+Android 的 `untrusted_app` seccomp 会让 `set_robust_list`、`rseq`、`setgid`
+直接触发 **SIGSYS（signal 31）**，未处理的 glibc 静态程序会报
+`Unknown signal 31` 并退出。仓库里的 aarch64 `bash` / `busybox` / `stub` 和
+`dist/shpack-builder-aarch64` 已用
+[`scripts/patch-android.py`](../scripts/patch-android.py) 处理：
+
+* `set_robust_list` / `rseq`：`svc` 改为 `nop`；
+* `setgid` / `setuid` 等：直接返回 0。
+
+因此 Termux 里应使用 **`dist/shpack-builder-aarch64`**，不要用 x86_64 版。
+打包出的产物在 Termux 中会自动回退 **dir 模式**：SELinux 拒绝
+`execve("/proc/self/fd/N")`（EACCES），memfd 无法执行；这是无 root 的系统限制，
+`--mode memfd` 会明确报错。dir 模式的临时目录退出时清理。
+
+```bash
+cp /sdcard/Download/shpack-builder-aarch64 ~/
+chmod 700 ~/shpack-builder-aarch64
+~/shpack-builder-aarch64 -s ~/your.sh -o ~/your-app -a aarch64
+~/your-app --list | head
+```
+
 ## 3. 部署位置：哪里可以执行？
 
 | 位置 | 可执行 | 说明 |

@@ -7,7 +7,7 @@ cd "$(dirname "$0")" || exit 1
 
 chmod +x \
   build.sh pack.sh fix-perms.sh \
-  scripts/*.sh \
+  scripts/*.sh scripts/patch-android.py \
   tests/*.sh tests/scripts/*.sh \
   examples/*.sh \
   prebuilt/host/shpack \

@@ -672,8 +672,16 @@ bool write_anon_file(const char* tag, const void* data, size_t len, mode_t mode,
         }
     }
 
-    if (!write_all(fd, data, len) || ::fchmod(fd, mode) != 0) {
+    if (!write_all(fd, data, len)) {
         err = errno_msg(errno, std::string("写入匿名文件 ") + tag);
+        ::close(fd);
+        fd = -1;
+        return false;
+    }
+    // Android 的 untrusted_app SELinux 会拒绝对 memfd 的 fchmod（EACCES）；
+    // memfd 本身已按 umask 创建，执行不依赖这里的 chmod，忽略即可。
+    if (::fchmod(fd, mode) != 0 && errno != EACCES && errno != EPERM) {
+        err = errno_msg(errno, std::string("设置匿名文件权限 ") + tag);
         ::close(fd);
         fd = -1;
         return false;

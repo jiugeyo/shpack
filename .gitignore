@@ -1,4 +1,4 @@
-build/
+﻿build/
 runtime/
 .cache/
 .build/
@@ -9,3 +9,4 @@ build-tools/
 .qemu/
 *.o
 *.log
+__pycache__/
